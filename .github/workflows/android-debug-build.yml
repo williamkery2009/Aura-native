@@ -1,49 +1,126 @@
-name: Build Aura Music Debug APK
+name: Aura Native Production CI/CD
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
       - master
+      - develop
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: aura-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+
 jobs:
-  build-debug-apk:
-    name: Build debug APK
+  build:
+
+    name: Build Android Application
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout project
+
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
 
-      - name: Set up Gradle
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make Gradle Executable
+        run: chmod +x gradlew
+
+      - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-          cache-read-only: false
 
-      - name: Show Gradle and Java versions
+      - name: Print Environment
         run: |
           java -version
-          gradle --version
+          ./gradlew --version
 
-      - name: Build Aura Music debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+      - name: Clean Project
+        run: ./gradlew clean --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Lint
+        run: ./gradlew lint --no-daemon --stacktrace
+
+      - name: Run Unit Tests
+        run: ./gradlew test --no-daemon --stacktrace
+
+      - name: Assemble Debug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Assemble Release
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Build Release Bundle
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: aura-music-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: aura-debug-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-release-apk
+          path: |
+            **/build/outputs/apk/release/*.apk
+
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-release-aab
+          path: |
+            **/build/outputs/bundle/release/*.aab
+
+      - name: Upload Mapping Files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-mapping-files
+          path: |
+            **/build/outputs/mapping/**
+
+      - name: Upload Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-test-reports
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+
+      - name: Upload Lint Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-lint-reports
+          path: |
+            **/build/reports/lint-results*
